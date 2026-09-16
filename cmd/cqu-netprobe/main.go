@@ -14,6 +14,7 @@ import (
 
 	"github.com/AhsokaTano26/cqu-netprobe/internal/appconfig"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/gateway"
+	"github.com/AhsokaTano26/cqu-netprobe/internal/localio"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/protocol"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/runner"
 )
@@ -33,6 +34,8 @@ func run() error {
 	token := flag.String("token", "", "Gateway token (overrides environment and config)")
 	logLevel := flag.String("log-level", "", "debug, info, warn, error, or off (overrides environment and config)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	localInput := flag.String("local-input", "", "local Gateway target configuration JSON (requires --local-output)")
+	localOutput := flag.String("local-output", "", "append measurements to this JSONL file (requires --local-input)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
@@ -56,7 +59,15 @@ func run() error {
 			overrides.LogLevel = logLevel
 		}
 	})
-	config, err := appconfig.Load(path, overrides)
+	localMode := *localInput != "" || *localOutput != ""
+	if localMode && (*localInput == "" || *localOutput == "") {
+		return errors.New("--local-input and --local-output must be supplied together")
+	}
+	loadConfig := appconfig.Load
+	if localMode {
+		loadConfig = appconfig.LoadLocal
+	}
+	config, err := loadConfig(path, overrides)
 	if err != nil {
 		return err
 	}
@@ -65,13 +76,28 @@ func run() error {
 		logOutput = io.Discard
 	}
 	logger := slog.New(slog.NewJSONHandler(logOutput, &slog.HandlerOptions{Level: parseLogLevel(config.LogLevel)}))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if localMode {
+		targets, output, err := localio.Open(*localInput, *localOutput)
+		if err != nil {
+			return err
+		}
+		logger.Info("starting local test", "input", *localInput, "output", *localOutput, "targets", len(targets.Targets))
+		localRunner := runner.New(output, targets, version, logger)
+		localRunner.StopOnPushError = true
+		runErr := localRunner.Run(ctx)
+		closeErr := output.Close()
+		if errors.Is(runErr, context.Canceled) {
+			runErr = nil
+		}
+		return errors.Join(runErr, closeErr)
+	}
 	client, err := gateway.NewClient(config.GatewayURL, config.Token, version)
 	if err != nil {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	logger.Info("starting cqu-netprobe", "version", version, "gateway", config.GatewayURL)
 	targets, err := fetchTargetsWithRetry(ctx, client, logger)
 	if err != nil {

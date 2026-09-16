@@ -64,6 +64,21 @@ func TestMissingConfig(t *testing.T) {
 	}
 }
 
+func TestLocalConfigWithoutCredentials(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("CQU_NETPROBE_GATEWAY_URL", "")
+	t.Setenv("CQU_NETPROBE_TOKEN", "")
+	t.Setenv("CQU_NETPROBE_LOG_LEVEL", "debug")
+	c, err := LoadLocal("", Overrides{})
+	if err != nil || c.LogLevel != "debug" {
+		t.Fatalf("local config failed: %v", err)
+	}
+	t.Setenv("CQU_NETPROBE_LOG_LEVEL", "invalid")
+	if _, err := LoadLocal("", Overrides{}); err == nil {
+		t.Fatal("invalid local logging config accepted")
+	}
+}
+
 func TestRejectsNonLoopbackHTTP(t *testing.T) {
 	config := Config{GatewayURL: "http://gateway.example", Token: "secret", LogLevel: "info"}
 	if err := config.Validate(); err == nil {

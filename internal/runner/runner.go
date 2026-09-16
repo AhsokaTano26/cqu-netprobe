@@ -7,16 +7,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AhsokaTano26/cqu-netprobe/internal/gateway"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/probe"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/protocol"
 )
 
+type Sink interface {
+	Push(context.Context, protocol.PushRequest) error
+}
+
 type Runner struct {
-	client       *gateway.Client
-	targets      protocol.TargetList
-	probeVersion string
-	logger       *slog.Logger
+	// StopOnPushError makes local file write failures terminate the run.
+	StopOnPushError bool
+	client          Sink
+	targets         protocol.TargetList
+	probeVersion    string
+	logger          *slog.Logger
 }
 
 type measurement struct {
@@ -27,7 +32,7 @@ type measurement struct {
 	err      error
 }
 
-func New(client *gateway.Client, targets protocol.TargetList, probeVersion string, logger *slog.Logger) *Runner {
+func New(client Sink, targets protocol.TargetList, probeVersion string, logger *slog.Logger) *Runner {
 	return &Runner{client: client, targets: targets, probeVersion: probeVersion, logger: logger}
 }
 
@@ -39,7 +44,9 @@ func (r *Runner) Run(ctx context.Context) error {
 			return err
 		}
 		runStart := time.Now()
-		r.runRound(ctx)
+		if err := r.runRound(ctx); err != nil {
+			return err
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -55,7 +62,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 }
 
-func (r *Runner) runRound(ctx context.Context) {
+func (r *Runner) runRound(ctx context.Context) error {
 	roundStart := time.Now()
 	measurements := r.measure(ctx)
 	results := make(map[string]protocol.TargetMeasurements)
@@ -73,11 +80,11 @@ func (r *Runner) runRound(ctx context.Context) {
 		results[item.targetID] = result
 	}
 	if ctx.Err() != nil {
-		return
+		return ctx.Err()
 	}
 	if len(results) == 0 {
 		r.logger.Debug("no supported targets configured; skipping push")
-		return
+		return nil
 	}
 	payload := protocol.PushRequest{
 		Version:      protocol.Version,
@@ -86,12 +93,16 @@ func (r *Runner) runRound(ctx context.Context) {
 		Results:      results,
 	}
 	if err := r.client.Push(ctx, payload); err != nil {
+		if r.StopOnPushError {
+			return err
+		}
 		if !errors.Is(err, context.Canceled) {
 			r.logger.Error("push failed", "err", err)
 		}
-		return
+		return nil
 	}
 	r.logger.Debug("measurement round pushed", "targets", len(results), "duration", time.Since(roundStart))
+	return nil
 }
 
 func (r *Runner) measure(ctx context.Context) <-chan measurement {

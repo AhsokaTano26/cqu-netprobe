@@ -24,6 +24,16 @@ type Overrides struct {
 }
 
 func Load(path string, overrides Overrides) (Config, error) {
+	return load(path, overrides, false)
+}
+
+// LoadLocal preserves logging configuration and precedence without requiring
+// Gateway credentials, since local runs never contact the Gateway.
+func LoadLocal(path string, overrides Overrides) (Config, error) {
+	return load(path, overrides, true)
+}
+
+func load(path string, overrides Overrides, local bool) (Config, error) {
 	config := Config{LogLevel: "info"}
 	defaultPath := path == ""
 	if defaultPath {
@@ -62,7 +72,13 @@ func Load(path string, overrides Overrides) (Config, error) {
 	config.GatewayURL = strings.TrimRight(strings.TrimSpace(config.GatewayURL), "/")
 	config.Token = strings.TrimSpace(config.Token)
 	config.LogLevel = strings.ToLower(strings.TrimSpace(config.LogLevel))
-	if err := config.Validate(); err != nil {
+	var validationErr error
+	if local {
+		validationErr = config.validateLogLevel()
+	} else {
+		validationErr = config.Validate()
+	}
+	if err := validationErr; err != nil {
 		return Config{}, err
 	}
 	return config, nil
@@ -103,6 +119,10 @@ func (c Config) Validate() error {
 	if c.Token == "" {
 		return errors.New("gateway token is required")
 	}
+	return c.validateLogLevel()
+}
+
+func (c Config) validateLogLevel() error {
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error", "off":
 	default:

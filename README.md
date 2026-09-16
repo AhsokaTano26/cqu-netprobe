@@ -61,6 +61,38 @@ go run ./cmd/cqu-netprobe --config-file config.json --log-level debug
 程序收到 `SIGINT` 或 `SIGTERM` 后会停止当前工作并退出。成功拉取的拨测计划在
 本次进程生命周期中保持不变；Gateway 修改计划后需要重启探针。
 
+## 本地测试
+
+准备一个 JSON 文件，内容与 Gateway 的 `GET /api/v1/targets` 响应一致：
+
+```json
+{
+  "version": 1,
+  "config": {
+    "interval_ms": 10000,
+    "icmp": { "count": 5, "interval_ms": 200, "timeout_ms": 1000 },
+    "http": { "method": "GET", "follow_redirects": true, "verify_tls": true, "timeout_ms": 5000 }
+  },
+  "targets": [
+    { "target_id": "loopback", "address": "127.0.0.1", "probe_types": ["icmp"] }
+  ]
+}
+```
+
+保存为 `targets.json`，运行：
+
+```console
+go run ./cmd/cqu-netprobe --local-input targets.json --local-output results.jsonl
+```
+
+两个参数必须同时指定，仅作为命令行参数使用。本地模式无需 Gateway 地址或 Token，
+不会请求 Gateway；仍可通过配置文件、环境变量或 `--log-level` 控制日志。
+输入只在启动时读取并校验一次，随后按其中的周期持续拨测，按 Ctrl+C 停止。
+每轮完成后追加一行 JSON，结构与 Push 请求体一致，包含 `version`、`timestamp`、
+`probe_version` 和 `results`。已有文件保留，每轮写入后同步到磁盘。
+空目标或只有 DNS 类型时不输出记录；输入非法、输出不可写或写入失败时退出。
+输入和输出不能指向同一个文件，已有输出文件必须以换行符结尾。
+
 ## 构建
 
 ```console

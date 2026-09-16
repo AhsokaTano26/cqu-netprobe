@@ -17,8 +17,7 @@ import (
 )
 
 const (
-	maxTargetResponseSize = 1 << 20
-	maxPushBodySize       = 64 << 10
+	maxPushBodySize = 64 << 10
 )
 
 type Client struct {
@@ -81,26 +80,7 @@ func (c *Client) FetchTargets(ctx context.Context) (protocol.TargetList, error) 
 		return protocol.TargetList{}, decodeHTTPError(response)
 	}
 
-	limited := io.LimitReader(response.Body, maxTargetResponseSize+1)
-	body, err := io.ReadAll(limited)
-	if err != nil {
-		return protocol.TargetList{}, fmt.Errorf("read target response: %w", err)
-	}
-	if len(body) > maxTargetResponseSize {
-		return protocol.TargetList{}, errors.New("target response exceeds 1 MiB")
-	}
-	var targets protocol.TargetList
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	if err := decoder.Decode(&targets); err != nil {
-		return protocol.TargetList{}, fmt.Errorf("decode target response: %w", err)
-	}
-	if err := ensureJSONEOF(decoder); err != nil {
-		return protocol.TargetList{}, fmt.Errorf("decode target response: %w", err)
-	}
-	if err := targets.Validate(); err != nil {
-		return protocol.TargetList{}, fmt.Errorf("validate target response: %w", err)
-	}
-	return targets, nil
+	return protocol.DecodeTargets(response.Body)
 }
 
 func (c *Client) Push(ctx context.Context, payload protocol.PushRequest) error {
