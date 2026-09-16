@@ -1,5 +1,5 @@
 {
-  "gateway_url": "https://netprobe.example.com",
+  "gateway_url": "GATEWAY_URL",
   "token": "YOUR_GATEWAY_TOKEN",
   "log_level": "info"
 }
