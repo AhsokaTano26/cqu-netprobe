@@ -35,6 +35,8 @@ DNS 拨测暂未启用。Gateway 如果意外下发 `dns` 类型，探针会忽�
 | `gateway_url` | `--gateway-url` | `CQU_NETPROBE_GATEWAY_URL` |
 | `token` | `--token` | `CQU_NETPROBE_TOKEN` |
 | `log_level` | `--log-level` | `CQU_NETPROBE_LOG_LEVEL` |
+| `local_input` | `--local-input` | `CQU_NETPROBE_LOCAL_INPUT` |
+| `local_output` | `--local-output` | `CQU_NETPROBE_LOCAL_OUTPUT` |
 
 `log_level` 支持 `debug`、`info`、`warn`、`error`、`off`，默认 `info`。
 配置文件路径使用 `--config-file` 或 `CQU_NETPROBE_CONFIG_FILE` 指定，命令行优先。
@@ -85,8 +87,9 @@ go run ./cmd/cqu-netprobe --config-file config.json --log-level debug
 go run ./cmd/cqu-netprobe --local-input targets.json --local-output results.jsonl
 ```
 
-两个参数必须同时指定，仅作为命令行参数使用。本地模式无需 Gateway 地址或 Token，
-不会请求 Gateway；仍可通过配置文件、环境变量或 `--log-level` 控制日志。
+两个参数必须同时配置，也可以通过 `config.json` 的 `local_input`、`local_output`
+字段或对应环境变量设置。它们没有写入 `config.example.json`。本地模式无需 Gateway
+地址或 Token，不会请求 Gateway；仍可通过配置文件、环境变量或命令行控制日志。
 输入只在启动时读取并校验一次，随后按其中的周期持续拨测，按 Ctrl+C 停止。
 每轮完成后追加一行 JSON，结构与 Push 请求体一致，包含 `version`、`timestamp`、
 `probe_version` 和 `results`。已有文件保留，每轮写入后同步到磁盘。

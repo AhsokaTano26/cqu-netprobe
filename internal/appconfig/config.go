@@ -12,28 +12,22 @@ import (
 )
 
 type Config struct {
-	GatewayURL string `json:"gateway_url"`
-	Token      string `json:"token,omitempty"`
-	LogLevel   string `json:"log_level,omitempty"`
+	GatewayURL  string `json:"gateway_url"`
+	Token       string `json:"token,omitempty"`
+	LogLevel    string `json:"log_level,omitempty"`
+	LocalInput  string `json:"local_input,omitempty"`
+	LocalOutput string `json:"local_output,omitempty"`
 }
 
 type Overrides struct {
-	GatewayURL *string
-	Token      *string
-	LogLevel   *string
+	GatewayURL  *string
+	Token       *string
+	LogLevel    *string
+	LocalInput  *string
+	LocalOutput *string
 }
 
 func Load(path string, overrides Overrides) (Config, error) {
-	return load(path, overrides, false)
-}
-
-// LoadLocal preserves logging configuration and precedence without requiring
-// Gateway credentials, since local runs never contact the Gateway.
-func LoadLocal(path string, overrides Overrides) (Config, error) {
-	return load(path, overrides, true)
-}
-
-func load(path string, overrides Overrides, local bool) (Config, error) {
 	config := Config{LogLevel: "info"}
 	defaultPath := path == ""
 	if defaultPath {
@@ -69,16 +63,18 @@ func load(path string, overrides Overrides, local bool) (Config, error) {
 	if overrides.LogLevel != nil {
 		config.LogLevel = *overrides.LogLevel
 	}
+	if overrides.LocalInput != nil {
+		config.LocalInput = *overrides.LocalInput
+	}
+	if overrides.LocalOutput != nil {
+		config.LocalOutput = *overrides.LocalOutput
+	}
 	config.GatewayURL = strings.TrimRight(strings.TrimSpace(config.GatewayURL), "/")
 	config.Token = strings.TrimSpace(config.Token)
 	config.LogLevel = strings.ToLower(strings.TrimSpace(config.LogLevel))
-	var validationErr error
-	if local {
-		validationErr = config.validateLogLevel()
-	} else {
-		validationErr = config.Validate()
-	}
-	if err := validationErr; err != nil {
+	config.LocalInput = strings.TrimSpace(config.LocalInput)
+	config.LocalOutput = strings.TrimSpace(config.LocalOutput)
+	if err := config.Validate(); err != nil {
 		return Config{}, err
 	}
 	return config, nil
@@ -94,9 +90,24 @@ func applyEnvironment(config *Config) {
 	if value, ok := os.LookupEnv("CQU_NETPROBE_LOG_LEVEL"); ok {
 		config.LogLevel = value
 	}
+	if value, ok := os.LookupEnv("CQU_NETPROBE_LOCAL_INPUT"); ok {
+		config.LocalInput = value
+	}
+	if value, ok := os.LookupEnv("CQU_NETPROBE_LOCAL_OUTPUT"); ok {
+		config.LocalOutput = value
+	}
 }
 
 func (c Config) Validate() error {
+	if err := c.validateLogLevel(); err != nil {
+		return err
+	}
+	if (c.LocalInput == "") != (c.LocalOutput == "") {
+		return errors.New("local_input and local_output must be configured together")
+	}
+	if c.LocalInput != "" {
+		return nil
+	}
 	if c.GatewayURL == "" {
 		return errors.New("gateway URL is required")
 	}
@@ -119,7 +130,7 @@ func (c Config) Validate() error {
 	if c.Token == "" {
 		return errors.New("gateway token is required")
 	}
-	return c.validateLogLevel()
+	return nil
 }
 
 func (c Config) validateLogLevel() error {

@@ -57,20 +57,17 @@ func run() error {
 			overrides.Token = token
 		case "log-level":
 			overrides.LogLevel = logLevel
+		case "local-input":
+			overrides.LocalInput = localInput
+		case "local-output":
+			overrides.LocalOutput = localOutput
 		}
 	})
-	localMode := *localInput != "" || *localOutput != ""
-	if localMode && (*localInput == "" || *localOutput == "") {
-		return errors.New("--local-input and --local-output must be supplied together")
-	}
-	loadConfig := appconfig.Load
-	if localMode {
-		loadConfig = appconfig.LoadLocal
-	}
-	config, err := loadConfig(path, overrides)
+	config, err := appconfig.Load(path, overrides)
 	if err != nil {
 		return err
 	}
+	localMode := config.LocalInput != ""
 	logOutput := io.Writer(os.Stderr)
 	if config.LogLevel == "off" {
 		logOutput = io.Discard
@@ -79,11 +76,11 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if localMode {
-		targets, output, err := localio.Open(*localInput, *localOutput)
+		targets, output, err := localio.Open(config.LocalInput, config.LocalOutput)
 		if err != nil {
 			return err
 		}
-		logger.Info("starting local test", "input", *localInput, "output", *localOutput, "targets", len(targets.Targets))
+		logger.Info("starting local test", "input", config.LocalInput, "output", config.LocalOutput, "targets", len(targets.Targets))
 		localRunner := runner.New(output, targets, version, logger)
 		localRunner.StopOnPushError = true
 		runErr := localRunner.Run(ctx)
