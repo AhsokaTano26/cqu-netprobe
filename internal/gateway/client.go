@@ -23,6 +23,9 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// ErrPushTooLarge identifies a local rejection before any request is sent.
+var ErrPushTooLarge = errors.New("push request exceeds the client size limit")
+
 type HTTPError struct {
 	StatusCode int
 	Code       string
@@ -89,7 +92,7 @@ func (c *Client) Push(ctx context.Context, payload protocol.PushRequest) error {
 		return fmt.Errorf("encode push request: %w", err)
 	}
 	if len(body) > limits.MaxPushBodyBytes {
-		return fmt.Errorf("push request is %d bytes, exceeding the %d-byte limit", len(body), limits.MaxPushBodyBytes)
+		return fmt.Errorf("%w: %d bytes exceeds %d bytes", ErrPushTooLarge, len(body), limits.MaxPushBodyBytes)
 	}
 	request, err := c.newRequest(ctx, http.MethodPost, "/api/v1/push", bytes.NewReader(body))
 	if err != nil {

@@ -27,6 +27,7 @@ type Runner struct {
 	targets         protocol.TargetList
 	probeVersion    string
 	logger          *slog.Logger
+	pushBackoff     pushBackoff
 }
 
 type measurement struct {
@@ -71,10 +72,22 @@ func (r *Runner) Run(ctx context.Context) error {
 			r.logger.Warn("measurement round exceeded its schedule; skipped ticks",
 				"duration", time.Since(runStart), "skipped", skipped)
 		}
+		// Backoff is a minimum pause after failure; never accelerate the normal
+		// measurement schedule or resend the failed round's payload.
+		if r.pushBackoff.delay > 0 {
+			if retryAt := now.Add(r.pushBackoff.delay); retryAt.After(nextStart) {
+				nextStart = retryAt
+			}
+		}
 	}
 }
 
 func (r *Runner) runRound(ctx context.Context) error {
+	if r.pushBackoff.delay > 0 {
+		// Local size failures cannot receive a 409. Polling here lets a reduced
+		// Gateway configuration recover them, and is bounded by the backoff.
+		r.refreshTargets(ctx, "push failure backoff")
+	}
 	roundStart := time.Now()
 	measurements := r.measure(ctx)
 	results := make(map[string]protocol.TargetMeasurements)
@@ -95,6 +108,7 @@ func (r *Runner) runRound(ctx context.Context) error {
 		return ctx.Err()
 	}
 	if len(results) == 0 {
+		r.pushBackoff.update(nil)
 		r.logger.Debug("no supported targets configured; skipping push")
 		r.refreshTargets(ctx, "no supported targets")
 		return nil
@@ -110,16 +124,18 @@ func (r *Runner) runRound(ctx context.Context) error {
 		if r.StopOnPushError {
 			return err
 		}
+		r.pushBackoff.update(err)
 		if !errors.Is(err, context.Canceled) {
 			if errors.Is(err, protocol.ErrConfigStale) {
 				r.logger.Info("measurement configuration is stale; refreshing", "config_id", r.targets.ConfigID)
 				r.refreshTargets(ctx, "stale configuration")
 			} else {
-				r.logger.Error("push failed", "err", err)
+				r.logger.Error("push failed", "err", err, "backoff", r.pushBackoff.delay)
 			}
 		}
 		return nil
 	}
+	r.pushBackoff.update(nil)
 	r.logger.Info("measurement round pushed", "config_id", r.targets.ConfigID, "targets", len(results), "duration", time.Since(roundStart))
 	return nil
 }
