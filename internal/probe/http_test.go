@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,28 @@ func TestHTTPStatusSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Success || result.StatusCode == nil || *result.StatusCode != http.StatusFound || result.DurationMS == nil {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestHTTPDefaultsToHTTPWithoutScheme(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/health" {
+			t.Errorf("unexpected request path %q", request.URL.Path)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	address := strings.TrimPrefix(server.URL, "http://") + "/health"
+	result, err := HTTP(context.Background(), address, protocol.HTTPConfig{
+		Method:    "GET",
+		TimeoutMS: 1_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success || result.StatusCode == nil || *result.StatusCode != http.StatusNoContent {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 }

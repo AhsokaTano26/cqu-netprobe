@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AhsokaTano26/cqu-netprobe/internal/protocol"
 )
 
 func HTTP(ctx context.Context, address string, config protocol.HTTPConfig) (protocol.HTTPResult, error) {
+	if !strings.Contains(address, "://") {
+		address = "http://" + address
+	}
+
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// Probe the campus connection directly, regardless of process proxy env.
 	transport.Proxy = nil
