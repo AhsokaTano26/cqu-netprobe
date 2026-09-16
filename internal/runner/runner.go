@@ -101,7 +101,7 @@ func (r *Runner) runRound(ctx context.Context) error {
 		}
 		return nil
 	}
-	r.logger.Debug("measurement round pushed", "targets", len(results), "duration", time.Since(roundStart))
+	r.logger.Info("measurement round pushed", "targets", len(results), "duration", time.Since(roundStart))
 	return nil
 }
 
