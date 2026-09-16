@@ -13,8 +13,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Docker Hub needs no GitHub permission: the registry credentials are the two
-# secrets below, and these jobs only read the repository.
+# Only the release job needs write access to publish GitHub assets.
 permissions:
   contents: read
 
@@ -48,6 +47,72 @@ jobs:
 
       - name: go build
         run: go build ./...
+
+  release:
+    needs: test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Build release binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+          CGO_ENABLED: "0"
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^v[0-9][0-9A-Za-z._+-]*$ ]] || [ "${#VERSION}" -gt 32 ]; then
+            echo "::error::Release tags must start with v and a digit, contain only version characters, and be at most 32 bytes."
+            exit 1
+          fi
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 linux/armv6 linux/armv7 linux/mips linux/mipsle windows/amd64 windows/arm64; do
+            export GOOS="${target%/*}"
+            arch="${target#*/}"
+            export GOARCH="$arch"
+            unset GOARM GOMIPS
+            case "$arch" in
+              armv6) export GOARCH=arm GOARM=6 ;;
+              armv7) export GOARCH=arm GOARM=7 ;;
+              mips|mipsle) export GOMIPS=softfloat ;;
+            esac
+            name="cqu-netprobe_${VERSION}_${GOOS}_${arch}"
+            binary=cqu-netprobe
+            if [ "$GOOS" = windows ]; then binary=cqu-netprobe.exe; fi
+            stage="$(mktemp -d)"
+            go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$stage/$binary" ./cmd/cqu-netprobe
+            cp README.md config.example.json "$stage/"
+            if [ "$GOOS" = windows ]; then
+              (cd "$stage" && zip -q "$GITHUB_WORKSPACE/dist/$name.zip" "$binary" README.md config.example.json)
+            else
+              tar -czf "dist/$name.tar.gz" -C "$stage" "$binary" README.md config.example.json
+            fi
+          done
+          (cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            flags=()
+            if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+            gh release create "$VERSION" --verify-tag --title "$VERSION" --generate-notes "${flags[@]}" dist/*
+          else
+            gh release upload "$VERSION" dist/* --clobber
+          fi
 
   image:
     # Publishing an image from a commit that failed its tests is how a registry
@@ -133,7 +198,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.build-version.outputs.version }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           # Attestation manifests turn the tag into an index carrying extra
           # blobs. Docker Hub accepts them, but older docker and podman clients
           # warn about unknown media types when pulling, and nothing in this
