@@ -135,6 +135,7 @@ func (r *Runner) refreshTargets(ctx context.Context, reason string) {
 		}
 		return
 	}
+	r.logger.Info("target configuration fetched", "reason", reason, "config", targets)
 	oldID := r.targets.ConfigID
 	r.targets = targets
 	if oldID == targets.ConfigID {

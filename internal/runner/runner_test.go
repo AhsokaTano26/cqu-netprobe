@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -115,7 +116,8 @@ func TestRunnerRefreshesStaleConfigurationForNextRound(t *testing.T) {
 	oldTargets := makeTargets("23ea604f-6e47-5710-bc10-ab9b6a1302a3")
 	newTargets := makeTargets("11111111-2222-5333-8444-555555555555")
 	client := &refreshingClient{targets: newTargets}
-	r := NewManaged(client, oldTargets, "test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var logs bytes.Buffer
+	r := NewManaged(client, oldTargets, "test", slog.New(slog.NewJSONHandler(&logs, nil)))
 
 	if err := r.runRound(context.Background()); err != nil {
 		t.Fatal(err)
@@ -128,6 +130,29 @@ func TestRunnerRefreshesStaleConfigurationForNextRound(t *testing.T) {
 	}
 	if len(client.pushes) != 2 || client.pushes[0].ConfigID != oldTargets.ConfigID || client.pushes[1].ConfigID != newTargets.ConfigID {
 		t.Fatalf("unexpected push config IDs: %#v", client.pushes)
+	}
+	decoder := json.NewDecoder(&logs)
+	foundConfigLog := false
+	for {
+		var entry struct {
+			Message string              `json:"msg"`
+			Config  protocol.TargetList `json:"config"`
+		}
+		if err := decoder.Decode(&entry); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode log entry: %v", err)
+		}
+		if entry.Message == "target configuration fetched" {
+			foundConfigLog = true
+			if entry.Config.ConfigID != newTargets.ConfigID || len(entry.Config.Targets) != len(newTargets.Targets) {
+				t.Fatalf("unexpected logged configuration: %#v", entry.Config)
+			}
+		}
+	}
+	if !foundConfigLog {
+		t.Fatal("fetched configuration was not logged")
 	}
 }
 

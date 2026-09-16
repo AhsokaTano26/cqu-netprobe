@@ -104,7 +104,7 @@ func run() error {
 		}
 		return err
 	}
-	logger.Info("target configuration loaded", "config_id", targets.ConfigID, "targets", len(targets.Targets), "interval", protocol.Milliseconds(targets.Config.IntervalMS))
+	logger.Info("target configuration loaded", "config_id", targets.ConfigID, "targets", len(targets.Targets), "interval", protocol.Milliseconds(targets.Config.IntervalMS), "config", targets)
 
 	probeRunner := runner.NewManaged(client, targets, version, logger)
 	if err := probeRunner.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
