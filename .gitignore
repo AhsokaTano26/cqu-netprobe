@@ -6,3 +6,5 @@
 /config
 /config.json
 /cqu-netprobe.json
+/local_input.json
+/local_output.jsonl
