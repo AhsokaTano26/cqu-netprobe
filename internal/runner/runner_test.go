@@ -41,7 +41,8 @@ func TestRunnerMeasuresAndPushesImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 	targets := protocol.TargetList{
-		Version: protocol.Version,
+		Version:  protocol.Version,
+		ConfigID: "23ea604f-6e47-5710-bc10-ab9b6a1302a3",
 		Config: protocol.MeasurementConfig{
 			IntervalMS: 10_000,
 			ICMP:       protocol.ICMPConfig{Count: 1, IntervalMS: 1, TimeoutMS: 100},
@@ -58,6 +59,9 @@ func TestRunnerMeasuresAndPushesImmediately(t *testing.T) {
 
 	select {
 	case payload := <-pushed:
+		if payload.ConfigID != targets.ConfigID {
+			t.Fatalf("unexpected config_id %q", payload.ConfigID)
+		}
 		measurement := payload.Results["test_http"].HTTP
 		if measurement == nil || !measurement.Success || measurement.StatusCode == nil || *measurement.StatusCode != http.StatusNoContent {
 			t.Fatalf("unexpected measurement: %#v", measurement)
@@ -68,5 +72,83 @@ func TestRunnerMeasuresAndPushesImmediately(t *testing.T) {
 	}
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("unexpected runner error: %v", err)
+	}
+}
+
+type refreshingClient struct {
+	pushes  []protocol.PushRequest
+	targets protocol.TargetList
+	fetches int
+}
+
+func (c *refreshingClient) Push(_ context.Context, payload protocol.PushRequest) error {
+	c.pushes = append(c.pushes, payload)
+	if len(c.pushes) == 1 {
+		return protocol.ErrConfigStale
+	}
+	return nil
+}
+
+func (c *refreshingClient) FetchTargets(_ context.Context) (protocol.TargetList, error) {
+	c.fetches++
+	return c.targets, nil
+}
+
+func TestRunnerRefreshesStaleConfigurationForNextRound(t *testing.T) {
+	targetServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer targetServer.Close()
+
+	makeTargets := func(configID string) protocol.TargetList {
+		return protocol.TargetList{
+			Version:  protocol.Version,
+			ConfigID: configID,
+			Config: protocol.MeasurementConfig{
+				IntervalMS: 10_000,
+				ICMP:       protocol.ICMPConfig{Count: 1, IntervalMS: 1, TimeoutMS: 100},
+				HTTP:       protocol.HTTPConfig{Method: "GET", FollowRedirects: true, VerifyTLS: true, TimeoutMS: 1_000},
+			},
+			Targets: []protocol.Target{{TargetID: "test_http", Address: targetServer.URL, ProbeTypes: []string{"http"}}},
+		}
+	}
+	oldTargets := makeTargets("23ea604f-6e47-5710-bc10-ab9b6a1302a3")
+	newTargets := makeTargets("11111111-2222-5333-8444-555555555555")
+	client := &refreshingClient{targets: newTargets}
+	r := NewManaged(client, oldTargets, "test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := r.runRound(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if client.fetches != 1 || r.targets.ConfigID != newTargets.ConfigID {
+		t.Fatalf("configuration was not refreshed: fetches=%d config_id=%q", client.fetches, r.targets.ConfigID)
+	}
+	if err := r.runRound(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.pushes) != 2 || client.pushes[0].ConfigID != oldTargets.ConfigID || client.pushes[1].ConfigID != newTargets.ConfigID {
+		t.Fatalf("unexpected push config IDs: %#v", client.pushes)
+	}
+}
+
+func TestRunnerRefreshesWhenNoMeasurementsCanBePushed(t *testing.T) {
+	oldTargets := protocol.TargetList{
+		Version:  protocol.Version,
+		ConfigID: "23ea604f-6e47-5710-bc10-ab9b6a1302a3",
+		Config: protocol.MeasurementConfig{
+			IntervalMS: 10_000,
+			ICMP:       protocol.ICMPConfig{Count: 1, IntervalMS: 1, TimeoutMS: 100},
+			HTTP:       protocol.HTTPConfig{Method: "GET", TimeoutMS: 1_000},
+		},
+	}
+	newTargets := oldTargets
+	newTargets.ConfigID = "11111111-2222-5333-8444-555555555555"
+	client := &refreshingClient{targets: newTargets}
+	r := NewManaged(client, oldTargets, "test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := r.runRound(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if client.fetches != 1 || r.targets.ConfigID != newTargets.ConfigID {
+		t.Fatal("idle configuration was not refreshed")
 	}
 }

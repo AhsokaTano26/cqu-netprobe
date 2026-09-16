@@ -70,6 +70,7 @@ go run ./cmd/cqu-netprobe --config-file config.json --log-level debug
 ```json
 {
   "version": 1,
+  "config_id": "23ea604f-6e47-5710-bc10-ab9b6a1302a3",
   "config": {
     "interval_ms": 10000,
     "icmp": { "count": 5, "interval_ms": 200, "timeout_ms": 1000 },
@@ -92,7 +93,7 @@ go run ./cmd/cqu-netprobe --local-input targets.json --local-output results.json
 地址或 Token，不会请求 Gateway；仍可通过配置文件、环境变量或命令行控制日志。
 输入只在启动时读取并校验一次，随后按其中的周期持续拨测，按 Ctrl+C 停止。
 每轮完成后追加一行 JSON，结构与 Push 请求体一致，包含 `version`、`timestamp`、
-`probe_version` 和 `results`。已有文件保留，每轮写入后同步到磁盘。
+`probe_version`、`config_id` 和 `results`。已有文件保留，每轮写入后同步到磁盘。
 空目标或只有 DNS 类型时不输出记录；输入非法、输出不可写或写入失败时退出。
 输入和输出不能指向同一个文件，已有输出文件必须以换行符结尾。
 
@@ -133,6 +134,12 @@ HTTP 拨测直连目标，不读取系统代理环境变量。耗时包含重定
 ICMP 域名目标优先选择 IPv4，无 IPv4 地址时使用 IPv6；jitter 按发送序号排列的
 成功样本计算。Windows RTT 使用单调时钟测量 API 调用耗时，保留亚毫秒精度，
 但包含系统 API 调用开销。Windows 同步 ICMP 调用退出时可能等待当前请求超时。
+
+Gateway 为每份拨测配置下发一个稳定的 UUID v5 `config_id`。探针在每轮 Push 中
+原样回传；Gateway 返回 `409 config_stale` 时，探针立即拉取一次最新配置，丢弃
+刚才未被接受的结果，并从下一轮开始使用新的目标、参数、周期和 `config_id`。
+刷新失败时保留旧配置，下一轮 Push 若仍收到 409 会再次尝试。配置中没有可上报的
+ICMP/HTTP 目标时无法通过 Push 获得 409，因此探针会在每个测量周期主动拉取配置。
 
 回归测试：`go test ./...`；真实 IPv4/IPv6 回环测试：
 `go test -tags=integration ./internal/probe`。Linux 集成测试还验证 raw socket，

@@ -15,10 +15,15 @@ type Sink interface {
 	Push(context.Context, protocol.PushRequest) error
 }
 
+type TargetSource interface {
+	FetchTargets(context.Context) (protocol.TargetList, error)
+}
+
 type Runner struct {
 	// StopOnPushError makes local file write failures terminate the run.
 	StopOnPushError bool
 	client          Sink
+	targetSource    TargetSource
 	targets         protocol.TargetList
 	probeVersion    string
 	logger          *slog.Logger
@@ -36,8 +41,14 @@ func New(client Sink, targets protocol.TargetList, probeVersion string, logger *
 	return &Runner{client: client, targets: targets, probeVersion: probeVersion, logger: logger}
 }
 
+func NewManaged(client interface {
+	Sink
+	TargetSource
+}, targets protocol.TargetList, probeVersion string, logger *slog.Logger) *Runner {
+	return &Runner{client: client, targetSource: client, targets: targets, probeVersion: probeVersion, logger: logger}
+}
+
 func (r *Runner) Run(ctx context.Context) error {
-	interval := protocol.Milliseconds(r.targets.Config.IntervalMS)
 	nextStart := time.Now()
 	for {
 		if err := waitUntil(ctx, nextStart); err != nil {
@@ -51,7 +62,8 @@ func (r *Runner) Run(ctx context.Context) error {
 			return err
 		}
 
-		nextStart = nextStart.Add(interval)
+		interval := protocol.Milliseconds(r.targets.Config.IntervalMS)
+		nextStart = runStart.Add(interval)
 		now := time.Now()
 		if !nextStart.After(now) {
 			skipped := now.Sub(nextStart)/interval + 1
@@ -84,12 +96,14 @@ func (r *Runner) runRound(ctx context.Context) error {
 	}
 	if len(results) == 0 {
 		r.logger.Debug("no supported targets configured; skipping push")
+		r.refreshTargets(ctx, "no supported targets")
 		return nil
 	}
 	payload := protocol.PushRequest{
 		Version:      protocol.Version,
 		Timestamp:    time.Now().Unix(),
 		ProbeVersion: r.probeVersion,
+		ConfigID:     r.targets.ConfigID,
 		Results:      results,
 	}
 	if err := r.client.Push(ctx, payload); err != nil {
@@ -97,12 +111,41 @@ func (r *Runner) runRound(ctx context.Context) error {
 			return err
 		}
 		if !errors.Is(err, context.Canceled) {
-			r.logger.Error("push failed", "err", err)
+			if errors.Is(err, protocol.ErrConfigStale) {
+				r.logger.Info("measurement configuration is stale; refreshing", "config_id", r.targets.ConfigID)
+				r.refreshTargets(ctx, "stale configuration")
+			} else {
+				r.logger.Error("push failed", "err", err)
+			}
 		}
 		return nil
 	}
-	r.logger.Info("measurement round pushed", "targets", len(results), "duration", time.Since(roundStart))
+	r.logger.Info("measurement round pushed", "config_id", r.targets.ConfigID, "targets", len(results), "duration", time.Since(roundStart))
 	return nil
+}
+
+func (r *Runner) refreshTargets(ctx context.Context, reason string) {
+	if r.targetSource == nil || ctx.Err() != nil {
+		return
+	}
+	targets, err := r.targetSource.FetchTargets(ctx)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			r.logger.Error("target configuration refresh failed; keeping current configuration", "reason", reason, "config_id", r.targets.ConfigID, "err", err)
+		}
+		return
+	}
+	oldID := r.targets.ConfigID
+	r.targets = targets
+	if oldID == targets.ConfigID {
+		if reason == "stale configuration" {
+			r.logger.Warn("target configuration refresh returned the same config_id", "config_id", targets.ConfigID)
+		} else {
+			r.logger.Debug("target configuration is unchanged", "reason", reason, "config_id", targets.ConfigID)
+		}
+		return
+	}
+	r.logger.Info("target configuration refreshed", "reason", reason, "old_config_id", oldID, "config_id", targets.ConfigID, "targets", len(targets.Targets), "interval", protocol.Milliseconds(targets.Config.IntervalMS))
 }
 
 func (r *Runner) measure(ctx context.Context) <-chan measurement {

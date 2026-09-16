@@ -33,6 +33,10 @@ type HTTPError struct {
 	Message    string
 }
 
+func (e *HTTPError) Is(target error) bool {
+	return target == protocol.ErrConfigStale && e.StatusCode == http.StatusConflict && e.Code == "config_stale"
+}
+
 func (e *HTTPError) Error() string {
 	if e.Code == "" {
 		return fmt.Sprintf("gateway returned HTTP %d", e.StatusCode)
@@ -132,14 +136,4 @@ func decodeHTTPError(response *http.Response) error {
 		Code:       payload.Error.Code,
 		Message:    payload.Error.Message,
 	}
-}
-
-func ensureJSONEOF(decoder *json.Decoder) error {
-	var extra any
-	if err := decoder.Decode(&extra); err == io.EOF {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	return errors.New("trailing JSON data")
 }

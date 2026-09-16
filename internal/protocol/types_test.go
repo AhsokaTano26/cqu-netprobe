@@ -8,7 +8,8 @@ import (
 
 func TestTargetListValidate(t *testing.T) {
 	targets := TargetList{
-		Version: Version,
+		Version:  Version,
+		ConfigID: "23ea604f-6e47-5710-bc10-ab9b6a1302a3",
 		Config: MeasurementConfig{
 			IntervalMS: 10_000,
 			ICMP:       ICMPConfig{Count: 5, IntervalMS: 200, TimeoutMS: 1_000},
@@ -42,7 +43,8 @@ func TestICMPFailureMarshalsNullDurations(t *testing.T) {
 
 func TestICMPRoundMustFitInterval(t *testing.T) {
 	targets := TargetList{
-		Version: Version,
+		Version:  Version,
+		ConfigID: "23ea604f-6e47-5710-bc10-ab9b6a1302a3",
 		Config: MeasurementConfig{
 			IntervalMS: 1_000,
 			ICMP:       ICMPConfig{Count: 2, IntervalMS: 500, TimeoutMS: 500},
@@ -51,5 +53,26 @@ func TestICMPRoundMustFitInterval(t *testing.T) {
 	}
 	if err := targets.Validate(); err == nil {
 		t.Fatal("expected invalid ICMP schedule")
+	}
+}
+
+func TestTargetListRequiresUUIDV5ConfigID(t *testing.T) {
+	targets := TargetList{
+		Version: Version,
+		Config: MeasurementConfig{
+			IntervalMS: 10_000,
+			ICMP:       ICMPConfig{Count: 1, IntervalMS: 1, TimeoutMS: 1_000},
+			HTTP:       HTTPConfig{Method: "GET", TimeoutMS: 5_000},
+		},
+	}
+	for _, id := range []string{"", "23ea604f-6e47-4710-bc10-ab9b6a1302a3", "23EA604F-6E47-5710-BC10-AB9B6A1302A3"} {
+		targets.ConfigID = id
+		if err := targets.Validate(); err == nil {
+			t.Fatalf("accepted invalid config_id %q", id)
+		}
+	}
+	targets.ConfigID = "23ea604f-6e47-5710-bc10-ab9b6a1302a3"
+	if err := targets.Validate(); err != nil {
+		t.Fatalf("rejected valid config_id: %v", err)
 	}
 }

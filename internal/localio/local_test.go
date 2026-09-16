@@ -20,7 +20,7 @@ import (
 
 func writeInput(t *testing.T, path, address string) {
 	t.Helper()
-	targets := protocol.TargetList{Version: 1, Config: protocol.MeasurementConfig{
+	targets := protocol.TargetList{Version: 1, ConfigID: "23ea604f-6e47-5710-bc10-ab9b6a1302a3", Config: protocol.MeasurementConfig{
 		IntervalMS: 20, ICMP: protocol.ICMPConfig{Count: 1, IntervalMS: 1, TimeoutMS: 1},
 		HTTP: protocol.HTTPConfig{Method: "GET", TimeoutMS: 1000},
 	}, Targets: []protocol.Target{{TargetID: "test_http", Address: address, ProbeTypes: []string{"http"}}}}
@@ -90,7 +90,7 @@ func TestLocalRoundsAppendJSONL(t *testing.T) {
 			t.Fatal(err)
 		}
 		m := p.Results["test_http"].HTTP
-		if p.Version != 1 || p.Timestamp <= 0 || p.ProbeVersion != "local-test" || m == nil || !m.Success || m.StatusCode == nil || *m.StatusCode != 204 {
+		if p.Version != 1 || p.ConfigID != "23ea604f-6e47-5710-bc10-ab9b6a1302a3" || p.Timestamp <= 0 || p.ProbeVersion != "local-test" || m == nil || !m.Success || m.StatusCode == nil || *m.StatusCode != 204 {
 			t.Fatalf("invalid payload: %s", line)
 		}
 	}

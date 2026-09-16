@@ -11,12 +11,18 @@ import (
 
 const Version = 1
 
-var targetIDPattern = regexp.MustCompile(`^[a-z0-9_]{1,32}$`)
+var (
+	targetIDPattern = regexp.MustCompile(`^[a-z0-9_]{1,32}$`)
+	configIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+)
+
+var ErrConfigStale = errors.New("gateway measurement configuration is stale")
 
 type TargetList struct {
-	Version int               `json:"version"`
-	Config  MeasurementConfig `json:"config"`
-	Targets []Target          `json:"targets"`
+	Version  int               `json:"version"`
+	Config   MeasurementConfig `json:"config"`
+	ConfigID string            `json:"config_id"`
+	Targets  []Target          `json:"targets"`
 }
 
 type MeasurementConfig struct {
@@ -48,6 +54,7 @@ type PushRequest struct {
 	Version      int                           `json:"version"`
 	Timestamp    int64                         `json:"timestamp"`
 	ProbeVersion string                        `json:"probe_version"`
+	ConfigID     string                        `json:"config_id"`
 	Results      map[string]TargetMeasurements `json:"results"`
 }
 
@@ -83,6 +90,9 @@ type ErrorResponse struct {
 func (l TargetList) Validate() error {
 	if l.Version != Version {
 		return fmt.Errorf("unsupported target-list version %d", l.Version)
+	}
+	if !configIDPattern.MatchString(l.ConfigID) {
+		return errors.New("config_id must be a lowercase UUID v5")
 	}
 	if err := validateDurationMS("config.interval_ms", l.Config.IntervalMS); err != nil {
 		return err

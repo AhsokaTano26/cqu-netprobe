@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,6 +25,7 @@ func TestFetchTargetsAndPush(t *testing.T) {
 			response.Header().Set("Content-Type", "application/json")
 			_, _ = response.Write([]byte(`{
 				"version":1,
+				"config_id":"23ea604f-6e47-5710-bc10-ab9b6a1302a3",
 				"config":{
 					"interval_ms":10000,
 					"icmp":{"count":5,"interval_ms":200,"timeout_ms":1000},
@@ -61,6 +63,7 @@ func TestFetchTargetsAndPush(t *testing.T) {
 		Version:      1,
 		Timestamp:    1,
 		ProbeVersion: "0.1.0",
+		ConfigID:     "23ea604f-6e47-5710-bc10-ab9b6a1302a3",
 		Results: map[string]protocol.TargetMeasurements{
 			"aliyun_dns": {ICMP: &protocol.ICMPResult{Sent: 1, LossRatio: 1}},
 		},
@@ -68,8 +71,25 @@ func TestFetchTargetsAndPush(t *testing.T) {
 	if err := client.Push(context.Background(), payload); err != nil {
 		t.Fatal(err)
 	}
-	if pushed.ProbeVersion != "0.1.0" {
+	if pushed.ProbeVersion != "0.1.0" || pushed.ConfigID != targets.ConfigID {
 		t.Fatalf("unexpected pushed payload: %#v", pushed)
+	}
+}
+
+func TestConfigStaleError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusConflict)
+		_, _ = response.Write([]byte(`{"error":{"code":"config_stale","message":"configuration changed"}}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "test-token", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.Push(context.Background(), protocol.PushRequest{Version: 1, ConfigID: "old", Results: map[string]protocol.TargetMeasurements{}})
+	if !errors.Is(err, protocol.ErrConfigStale) {
+		t.Fatalf("expected config stale, got %v", err)
 	}
 }
 
