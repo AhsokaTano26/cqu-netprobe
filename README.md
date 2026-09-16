@@ -26,10 +26,13 @@ cp config.example.json config.json
 
 ```console
 docker build --build-arg VERSION=0.1.0 -t cqu-netprobe .
-docker run --rm --cap-add NET_RAW \
+docker run -d \
+  --cap-add NET_RAW \
+  --name cqu-netprobe \
   -e CQU_NETPROBE_GATEWAY_URL=GATEWAY_URL \
   -e CQU_NETPROBE_TOKEN=YOUR_GATEWAY_TOKEN \
   -e CQU_NETPROBE_LOG_LEVEL=info \
+  --restart unless-stopped \
   cqu-netprobe
 ```
 
