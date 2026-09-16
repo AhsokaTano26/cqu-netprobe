@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AhsokaTano26/cqu-netprobe/internal/limits"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/protocol"
 )
 
@@ -108,5 +109,36 @@ func TestHTTPTransportFailureHasNullMeasurements(t *testing.T) {
 	}
 	if result.Success || result.StatusCode != nil || result.DurationMS != nil {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestHTTPBodyLimit(t *testing.T) {
+	tests := []struct {
+		name      string
+		bodySize  int
+		wantError bool
+	}{
+		{name: "at limit", bodySize: limits.MaxHTTPResponseBodyBytes},
+		{name: "over limit", bodySize: limits.MaxHTTPResponseBodyBytes + 1, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := strings.Repeat("x", test.bodySize)
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				_, _ = response.Write([]byte(body))
+			}))
+			defer server.Close()
+
+			result, err := HTTP(context.Background(), server.URL, protocol.HTTPConfig{Method: "GET", TimeoutMS: 5_000})
+			if (err != nil) != test.wantError {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !result.Success {
+				t.Fatalf("unexpected result: %#v", result)
+			}
+			if test.wantError && !strings.Contains(err.Error(), "8 MiB") {
+				t.Fatalf("unexpected limit error: %v", err)
+			}
+		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AhsokaTano26/cqu-netprobe/internal/limits"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/protocol"
 )
 
@@ -22,7 +23,7 @@ func HTTP(ctx context.Context, address string, config protocol.HTTPConfig) (prot
 	transport.Proxy = nil
 	defer transport.CloseIdleConnections()
 	transport.DisableKeepAlives = true
-	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	transport.TLSClientConfig = &tls.Config{MinVersion: minimumProbeTLSVersion}
 	if !config.VerifyTLS {
 		transport.TLSClientConfig.InsecureSkipVerify = true // Configured measurement behavior.
 	}
@@ -40,19 +41,19 @@ func HTTP(ctx context.Context, address string, config protocol.HTTPConfig) (prot
 	if err != nil {
 		return protocol.HTTPResult{Success: false}, fmt.Errorf("create HTTP request: %w", err)
 	}
-	request.Header.Set("User-Agent", "cqu-netprobe")
+	request.Header.Set("User-Agent", httpProbeUserAgent)
 	start := time.Now()
 	response, err := client.Do(request)
 	if response == nil {
 		return protocol.HTTPResult{Success: false}, err
 	}
 	defer response.Body.Close()
-	// Read at most 1 MiB. This includes ordinary response transfer time in the
-	// measurement without allowing an unbounded response to consume bandwidth.
+	// Include ordinary response transfer time in the measurement while enforcing
+	// the client-side body limit against the transparently decompressed stream.
 	var read int64
 	var readErr error
 	if err == nil {
-		read, readErr = io.Copy(io.Discard, io.LimitReader(response.Body, (1<<20)+1))
+		read, readErr = io.Copy(io.Discard, io.LimitReader(response.Body, limits.MaxHTTPResponseBodyBytes+1))
 	}
 	duration := float64(time.Since(start)) / float64(time.Millisecond)
 	status := response.StatusCode
@@ -67,8 +68,8 @@ func HTTP(ctx context.Context, address string, config protocol.HTTPConfig) (prot
 	if readErr != nil {
 		return result, fmt.Errorf("read HTTP response body: %w", readErr)
 	}
-	if read > 1<<20 {
-		return result, fmt.Errorf("HTTP response body exceeds the 1 MiB client safety limit")
+	if read > limits.MaxHTTPResponseBodyBytes {
+		return result, fmt.Errorf("HTTP response body exceeds the %d MiB client safety limit", limits.MaxHTTPResponseBodyBytes>>20)
 	}
 	return result, nil
 }

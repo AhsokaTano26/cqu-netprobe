@@ -50,7 +50,7 @@ func pingLinux(ctx context.Context, target net.IPAddr, timeout time.Duration, se
 		return 0, err
 	}
 	defer syscall.Close(fd)
-	sendTimeout := syscall.NsecToTimeval(min(timeout, 50*time.Millisecond).Nanoseconds())
+	sendTimeout := syscall.NsecToTimeval(min(timeout, icmpSocketPollInterval).Nanoseconds())
 	if err := syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_SNDTIMEO, &sendTimeout); err != nil {
 		return 0, fmt.Errorf("set ICMP send timeout: %w", err)
 	}
@@ -80,7 +80,7 @@ func pingLinux(ctx context.Context, target net.IPAddr, timeout time.Duration, se
 	if err := syscall.Sendto(fd, packet, 0, destination); err != nil {
 		return 0, fmt.Errorf("send ICMP echo: %w", err)
 	}
-	buffer := make([]byte, 1500)
+	buffer := make([]byte, icmpReceiveBufferBytes)
 	deadline := start.Add(timeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
@@ -95,7 +95,7 @@ func pingLinux(ctx context.Context, target net.IPAddr, timeout time.Duration, se
 		}
 		// Short blocking reads allow cancellation without closing a descriptor
 		// concurrently with a syscall. The absolute deadline never moves.
-		timeval := syscall.NsecToTimeval(min(remaining, 50*time.Millisecond).Nanoseconds())
+		timeval := syscall.NsecToTimeval(min(remaining, icmpSocketPollInterval).Nanoseconds())
 		if err := syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &timeval); err != nil {
 			return 0, fmt.Errorf("set ICMP receive timeout: %w", err)
 		}

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/AhsokaTano26/cqu-netprobe/internal/limits"
 )
 
 const Version = 1
@@ -102,8 +104,8 @@ func (l TargetList) Validate() error {
 	}
 	// A defensive ceiling prevents a malformed Gateway response from causing
 	// an unbounded allocation while remaining far above a useful probe count.
-	if l.Config.ICMP.Count > 10_000 {
-		return errors.New("config.icmp.count exceeds the client safety limit of 10000")
+	if l.Config.ICMP.Count > limits.MaxICMPCount {
+		return fmt.Errorf("config.icmp.count exceeds the client safety limit of %d", limits.MaxICMPCount)
 	}
 	if err := validateDurationMS("config.icmp.interval_ms", l.Config.ICMP.IntervalMS); err != nil {
 		return err

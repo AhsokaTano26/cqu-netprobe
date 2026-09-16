@@ -14,6 +14,7 @@ import (
 
 	"github.com/AhsokaTano26/cqu-netprobe/internal/appconfig"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/gateway"
+	"github.com/AhsokaTano26/cqu-netprobe/internal/limits"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/localio"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/protocol"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/runner"
@@ -41,8 +42,8 @@ func run() error {
 		fmt.Println(version)
 		return nil
 	}
-	if len(version) == 0 || len(version) > 32 {
-		return errors.New("build version must contain 1 to 32 bytes")
+	if len(version) == 0 || len(version) > limits.MaxProbeVersionBytes {
+		return fmt.Errorf("build version must contain 1 to %d bytes", limits.MaxProbeVersionBytes)
 	}
 
 	overrides := appconfig.Overrides{}
@@ -115,7 +116,7 @@ func run() error {
 }
 
 func fetchTargetsWithRetry(ctx context.Context, client *gateway.Client, logger *slog.Logger) (protocol.TargetList, error) {
-	delay := time.Second
+	delay := targetFetchRetryInitialDelay
 	for {
 		targets, err := client.FetchTargets(ctx)
 		if err == nil {
@@ -132,7 +133,7 @@ func fetchTargetsWithRetry(ctx context.Context, client *gateway.Client, logger *
 			return protocol.TargetList{}, ctx.Err()
 		case <-timer.C:
 		}
-		delay = min(delay*2, time.Minute)
+		delay = min(delay*targetFetchRetryMultiplier, targetFetchRetryMaxDelay)
 	}
 }
 

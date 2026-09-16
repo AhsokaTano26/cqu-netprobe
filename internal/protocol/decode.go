@@ -6,16 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/AhsokaTano26/cqu-netprobe/internal/limits"
 )
 
 // DecodeTargets is shared by Gateway responses and local input files.
 func DecodeTargets(reader io.Reader) (TargetList, error) {
-	body, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
+	body, err := io.ReadAll(io.LimitReader(reader, limits.MaxTargetConfigBytes+1))
 	if err != nil {
 		return TargetList{}, fmt.Errorf("read targets: %w", err)
 	}
-	if len(body) > 1<<20 {
-		return TargetList{}, errors.New("target configuration exceeds 1 MiB")
+	if len(body) > limits.MaxTargetConfigBytes {
+		return TargetList{}, fmt.Errorf("target configuration exceeds %d MiB", limits.MaxTargetConfigBytes>>20)
 	}
 	var targets TargetList
 	decoder := json.NewDecoder(bytes.NewReader(body))

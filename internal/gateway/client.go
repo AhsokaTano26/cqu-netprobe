@@ -11,13 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
+	"github.com/AhsokaTano26/cqu-netprobe/internal/limits"
 	"github.com/AhsokaTano26/cqu-netprobe/internal/protocol"
-)
-
-const (
-	maxPushBodySize = 64 << 10
 )
 
 type Client struct {
@@ -51,8 +47,8 @@ func NewClient(baseURL, token, version string) (*Client, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = (&net.Dialer{
-		Timeout:   3 * time.Second,
-		KeepAlive: 30 * time.Second,
+		Timeout:   gatewayDialTimeout,
+		KeepAlive: gatewayTCPKeepAlive,
 	}).DialContext
 	return &Client{
 		baseURL:   parsed,
@@ -60,7 +56,7 @@ func NewClient(baseURL, token, version string) (*Client, error) {
 		userAgent: "cqu-netprobe/" + version,
 		httpClient: &http.Client{
 			Transport: transport,
-			Timeout:   5 * time.Second,
+			Timeout:   gatewayRequestTimeout,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return errors.New("gateway redirects are not allowed")
 			},
@@ -92,8 +88,8 @@ func (c *Client) Push(ctx context.Context, payload protocol.PushRequest) error {
 	if err != nil {
 		return fmt.Errorf("encode push request: %w", err)
 	}
-	if len(body) > maxPushBodySize {
-		return fmt.Errorf("push request is %d bytes, exceeding the 65536-byte limit", len(body))
+	if len(body) > limits.MaxPushBodyBytes {
+		return fmt.Errorf("push request is %d bytes, exceeding the %d-byte limit", len(body), limits.MaxPushBodyBytes)
 	}
 	request, err := c.newRequest(ctx, http.MethodPost, "/api/v1/push", bytes.NewReader(body))
 	if err != nil {
@@ -110,7 +106,7 @@ func (c *Client) Push(ctx context.Context, payload protocol.PushRequest) error {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return decodeHTTPError(response)
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, limits.MaxGatewayResponseBodyBytes))
 	return nil
 }
 
@@ -127,7 +123,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 
 func decodeHTTPError(response *http.Response) error {
 	var payload protocol.ErrorResponse
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 64<<10))
+	decoder := json.NewDecoder(io.LimitReader(response.Body, limits.MaxGatewayResponseBodyBytes))
 	_ = decoder.Decode(&payload)
 	return &HTTPError{
 		StatusCode: response.StatusCode,
