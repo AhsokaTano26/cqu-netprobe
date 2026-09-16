@@ -6,7 +6,7 @@
 
 复制示例配置：
 
-```console
+```bash
 cp config.example.json config.json
 ```
 
@@ -24,8 +24,7 @@ cp config.example.json config.json
 
 ## Docker
 
-```console
-docker build --build-arg VERSION=0.1.0 -t cqu-netprobe .
+```bash
 docker run -d \
   --cap-add NET_RAW \
   --name cqu-netprobe \
@@ -33,7 +32,7 @@ docker run -d \
   -e CQU_NETPROBE_TOKEN=YOUR_GATEWAY_TOKEN \
   -e CQU_NETPROBE_LOG_LEVEL=info \
   --restart unless-stopped \
-  cqu-netprobe
+  tano26/cqu-netprobe:latest
 ```
 
 Linux 优先使用非特权 ping socket，不可用时回退到 raw socket，因此容器需要 `NET_RAW` capability。Windows 使用系统 IP Helper ICMP API，不启动外部 `ping`。
@@ -71,25 +70,25 @@ Linux 优先使用非特权 ping socket，不可用时回退到 raw socket，因
 
 直接运行：
 
-```console
+```bash
 go run ./cmd/cqu-netprobe
 ```
 
 构建：
 
-```console
+```bash
 go build -trimpath -o cqu-netprobe ./cmd/cqu-netprobe
 ```
 
 发布构建应注入版本号：
 
-```console
+```bash
 go build -trimpath -ldflags="-s -w -X main.version=0.1.0" -o cqu-netprobe ./cmd/cqu-netprobe
 ```
 
 测试：
 
-```console
+```bash
 go test ./...
 go vet ./...
 go test -tags=integration ./internal/probe
