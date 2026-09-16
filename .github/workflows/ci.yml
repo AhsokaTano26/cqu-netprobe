@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Fail here rather than at the push. A missing secret does not stop
-      # metadata-action: it expands the image name to "/cqu-netprobe-gateway",
+      # metadata-action: it expands the image name to "/cqu-netprobe",
       # and the job then dies on a registry error that names neither secret.
       - name: Check Docker Hub credentials
         env:
@@ -87,7 +87,7 @@ jobs:
         env:
           DOCKER_METADATA_SHORT_SHA_LENGTH: 12
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/cqu-netprobe-gateway
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/cqu-netprobe
           # ref and semver tags otherwise create :latest automatically. Keep
           # :latest exclusively tied to pushes to the default branch below.
           flavor: |
