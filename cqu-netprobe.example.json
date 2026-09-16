@@ -1,0 +1,6 @@
+{
+  "gateway_url": "https://netprobe.example.com",
+  "token_file": "cqu-netprobe.token",
+  "log_level": "info"
+}
+

@@ -1,0 +1,6 @@
+/cqu-netprobe
+/cqu-netprobe.exe
+/.gocache/
+*.log
+*.token
+
