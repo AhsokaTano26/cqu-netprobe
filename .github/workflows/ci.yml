@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+# A newer push to the same ref makes the previous run pointless, and cancelling
+# it also stops an older build from finishing last and overwriting :latest with
+# stale code. Each tag has its own group, so releases never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Docker Hub needs no GitHub permission: the registry credentials are the two
+# secrets below, and these jobs only read the repository.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Keep CI on the same Go release series as go.mod and Dockerfile.
+          go-version: "1.25.x"
+          # This module has no external dependencies and therefore no go.sum.
+          cache: false
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race ./...
+
+      - name: go build
+        run: go build ./...
+
+  image:
+    # Publishing an image from a commit that failed its tests is how a registry
+    # ends up holding something nobody can reproduce. Every push builds an
+    # image; only a push that passed does.
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail here rather than at the push. A missing secret does not stop
+      # metadata-action: it expands the image name to "/cqu-netprobe-gateway",
+      # and the job then dies on a registry error that names neither secret.
+      - name: Check Docker Hub credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Set the DOCKERHUB_USERNAME and DOCKERHUB_TOKEN repository secrets. The token is a Docker Hub access token with Read & Write scope, not the account password."
+            exit 1
+          fi
+
+      # No registry input: docker/login-action defaults to Docker Hub.
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        env:
+          DOCKER_METADATA_SHORT_SHA_LENGTH: 12
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/cqu-netprobe-gateway
+          # ref and semver tags otherwise create :latest automatically. Keep
+          # :latest exclusively tied to pushes to the default branch below.
+          flavor: |
+            latest=false
+          tags: |
+            # Every push: a 12-character commit identifier, so any build can
+            # be fetched by the revision it came from.
+            type=sha,format=short
+            # The rolling edge: the newest build of the default branch. A tag
+            # pushed on top of it needs no entry of its own — the commit is
+            # already there — and tagging an older commit should not drag
+            # "latest" backwards.
+            type=raw,value=latest,enable={{is_default_branch}}
+            # Releases: the pinned, human-chosen names.
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Resolve build version
+        id: build-version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then
+            version="$REF_NAME"
+          else
+            version="${COMMIT_SHA:0:12}"
+          fi
+          version_bytes="$(printf '%s' "$version" | wc -c)"
+          if [ "$version_bytes" -eq 0 ] || [ "$version_bytes" -gt 32 ]; then
+            echo "::error::Build version must contain 1 to 32 bytes: $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.build-version.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+          # Attestation manifests turn the tag into an index carrying extra
+          # blobs. Docker Hub accepts them, but older docker and podman clients
+          # warn about unknown media types when pulling, and nothing in this
+          # deployment consumes the attestations. A plain multi-arch index is
+          # what `docker compose pull` expects.
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
