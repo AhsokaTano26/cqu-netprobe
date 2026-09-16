@@ -54,6 +54,19 @@ func pingOnce(ctx context.Context, target net.IPAddr, timeout time.Duration, seq
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = min(timeout, time.Until(deadline))
+	}
+	if timeout <= 0 {
+		return 0, context.DeadlineExceeded
+	}
+	// DWORD milliseconds; round upwards so a sub-millisecond remainder never
+	// turns into a zero timeout. Avoid truncation on 32-bit Windows.
+	milliseconds := timeout / time.Millisecond
+	if timeout%time.Millisecond != 0 {
+		milliseconds++
+	}
+	timeout = min(milliseconds, time.Duration(0xfffffffe)) * time.Millisecond
 	if ipv4 := target.IP.To4(); ipv4 != nil {
 		return pingIPv4(ipv4, timeout, sequence)
 	}
@@ -69,6 +82,7 @@ func pingIPv4(ip net.IP, timeout time.Duration, sequence int) (time.Duration, er
 	payload := makePingPayload(sequence)
 	buffer := make([]byte, int(unsafe.Sizeof(icmpEchoReply{}))+len(payload)+8)
 	destination := binary.LittleEndian.Uint32(ip)
+	start := time.Now()
 	count, _, callErr := icmpSendEcho.Call(
 		handle,
 		uintptr(destination),
@@ -79,6 +93,7 @@ func pingIPv4(ip net.IP, timeout time.Duration, sequence int) (time.Duration, er
 		uintptr(len(buffer)),
 		uintptr(timeout.Milliseconds()),
 	)
+	rtt := time.Since(start)
 	if count == 0 {
 		return 0, fmt.Errorf("IcmpSendEcho: %w", normalizeWindowsError(callErr))
 	}
@@ -86,7 +101,7 @@ func pingIPv4(ip net.IP, timeout time.Duration, sequence int) (time.Duration, er
 	if reply.Status != 0 {
 		return 0, fmt.Errorf("IcmpSendEcho status %d", reply.Status)
 	}
-	return time.Duration(reply.RoundTripTime) * time.Millisecond, nil
+	return rtt, nil
 }
 
 func pingIPv6(target net.IPAddr, timeout time.Duration, sequence int) (time.Duration, error) {
@@ -106,12 +121,14 @@ func pingIPv6(target net.IPAddr, timeout time.Duration, sequence int) (time.Dura
 	}
 	payload := makePingPayload(sequence)
 	buffer := make([]byte, int(unsafe.Sizeof(icmp6EchoReply{}))+len(payload)+8)
+	source := socketAddressIPv6{Family: syscall.AF_INET6}
+	start := time.Now()
 	count, _, callErr := icmp6SendEcho2.Call(
 		handle,
 		0,
 		0,
 		0,
-		0,
+		uintptr(unsafe.Pointer(&source)),
 		uintptr(unsafe.Pointer(&destination)),
 		uintptr(unsafe.Pointer(&payload[0])),
 		uintptr(len(payload)),
@@ -120,6 +137,7 @@ func pingIPv6(target net.IPAddr, timeout time.Duration, sequence int) (time.Dura
 		uintptr(len(buffer)),
 		uintptr(timeout.Milliseconds()),
 	)
+	rtt := time.Since(start)
 	if count == 0 {
 		return 0, fmt.Errorf("Icmp6SendEcho2: %w", normalizeWindowsError(callErr))
 	}
@@ -127,7 +145,7 @@ func pingIPv6(target net.IPAddr, timeout time.Duration, sequence int) (time.Dura
 	if reply.Status != 0 {
 		return 0, fmt.Errorf("Icmp6SendEcho2 status %d", reply.Status)
 	}
-	return time.Duration(reply.RoundTripTime) * time.Millisecond, nil
+	return rtt, nil
 }
 
 func makePingPayload(sequence int) []byte {

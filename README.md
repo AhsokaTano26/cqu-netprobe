@@ -88,5 +88,16 @@ IP Helper ICMP API，无需启动外部 `ping` 进程。
 `config.interval_ms` 对齐，轮次不会重叠；如果一轮耗时过长，已经错过的调度点
 会被跳过。每轮结束后只 Push 本轮结果。
 
+HTTP 拨测直连目标，不读取系统代理环境变量。耗时包含重定向和响应体读取
+（最多读取 1 MiB）；即使读取响应体失败，`success` 仍遵循 v1 的状态码定义，
+错误仅记录到日志。因此它表示 HTTP 状态可达性，不保证完整内容下载成功。
+ICMP 域名目标优先选择 IPv4，无 IPv4 地址时使用 IPv6；jitter 按发送序号排列的
+成功样本计算。Windows RTT 使用单调时钟测量 API 调用耗时，保留亚毫秒精度，
+但包含系统 API 调用开销。Windows 同步 ICMP 调用退出时可能等待当前请求超时。
+
+回归测试：`go test ./...`；真实 IPv4/IPv6 回环测试：
+`go test -tags=integration ./internal/probe`。Linux 集成测试还验证 raw socket，
+需要 root 或 `CAP_NET_RAW`。这些测试不依赖公网或校园网目标。
+
 接口与 Payload 定义见 [`CQU NetProbe Protocol v1.md`](CQU%20NetProbe%20Protocol%20v1.md)
 和 [`openapi.json`](openapi.json)。

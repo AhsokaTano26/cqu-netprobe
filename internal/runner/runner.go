@@ -72,6 +72,9 @@ func (r *Runner) runRound(ctx context.Context) {
 		}
 		results[item.targetID] = result
 	}
+	if ctx.Err() != nil {
+		return
+	}
 	if len(results) == 0 {
 		r.logger.Debug("no supported targets configured; skipping push")
 		return

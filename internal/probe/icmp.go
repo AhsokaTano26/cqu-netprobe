@@ -38,12 +38,13 @@ func ICMP(ctx context.Context, address string, config protocol.ICMPConfig) (prot
 	var group sync.WaitGroup
 	interval := protocol.Milliseconds(config.IntervalMS)
 	timeout := protocol.Milliseconds(config.TimeoutMS)
+	start := time.Now()
 	for sequence := 0; sequence < config.Count; sequence++ {
 		group.Add(1)
 		go func(sequence int) {
 			defer group.Done()
 			if sequence > 0 {
-				timer := time.NewTimer(time.Duration(sequence) * interval)
+				timer := time.NewTimer(time.Until(start.Add(time.Duration(sequence) * interval)))
 				defer timer.Stop()
 				select {
 				case <-ctx.Done():
@@ -76,28 +77,28 @@ func ICMP(ctx context.Context, address string, config protocol.ICMPConfig) (prot
 		return result, joined
 	}
 
-	minimum, maximum, total := successful[0].rtt, successful[0].rtt, time.Duration(0)
+	minimum, maximum, total := successful[0].rtt, successful[0].rtt, float64(0)
 	for _, outcome := range successful {
 		minimum = min(minimum, outcome.rtt)
 		maximum = max(maximum, outcome.rtt)
-		total += outcome.rtt
+		total += durationMilliseconds(outcome.rtt)
 	}
 	minMS := durationMilliseconds(minimum)
-	avgMS := durationMilliseconds(total) / float64(len(successful))
+	avgMS := total / float64(len(successful))
 	maxMS := durationMilliseconds(maximum)
 	result.MinRTTMS = &minMS
 	result.AvgRTTMS = &avgMS
 	result.MaxRTTMS = &maxMS
 	if len(successful) > 1 {
-		var differenceTotal time.Duration
+		var differenceTotal float64
 		for i := 1; i < len(successful); i++ {
 			difference := successful[i].rtt - successful[i-1].rtt
 			if difference < 0 {
 				difference = -difference
 			}
-			differenceTotal += difference
+			differenceTotal += durationMilliseconds(difference)
 		}
-		jitterMS := durationMilliseconds(differenceTotal) / float64(len(successful)-1)
+		jitterMS := differenceTotal / float64(len(successful)-1)
 		result.JitterMS = &jitterMS
 	}
 	return result, joined
