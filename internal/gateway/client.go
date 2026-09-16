@@ -115,9 +115,7 @@ func (c *Client) Push(ctx context.Context, payload protocol.PushRequest) error {
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
-	endpoint := *c.baseURL
-	endpoint.Path = path
-	endpoint.RawPath = ""
+	endpoint := c.baseURL.JoinPath(path)
 	request, err := http.NewRequestWithContext(ctx, method, endpoint.String(), body)
 	if err != nil {
 		return nil, fmt.Errorf("create gateway request: %w", err)

@@ -118,9 +118,6 @@ func (c Config) Validate() error {
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("gateway URL must not contain credentials, a query, or a fragment")
 	}
-	if parsed.Path != "" && parsed.Path != "/" {
-		return errors.New("gateway URL must not contain a path")
-	}
 	if parsed.Scheme != "https" {
 		host := parsed.Hostname()
 		if parsed.Scheme != "http" || !isLoopbackHost(host) {

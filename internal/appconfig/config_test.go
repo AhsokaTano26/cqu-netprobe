@@ -113,3 +113,10 @@ func TestRejectsNonLoopbackHTTP(t *testing.T) {
 		t.Fatal("expected HTTP gateway URL to be rejected")
 	}
 }
+
+func TestAcceptsGatewayURLWithSubdirectory(t *testing.T) {
+	config := Config{GatewayURL: "https://gateway.example/netprobe", Token: "secret", LogLevel: "info"}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("gateway URL with subdirectory was rejected: %v", err)
+	}
+}

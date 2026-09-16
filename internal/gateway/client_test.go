@@ -11,7 +11,7 @@ import (
 	"github.com/AhsokaTano26/cqu-netprobe/internal/protocol"
 )
 
-func TestFetchTargetsAndPush(t *testing.T) {
+func TestFetchTargetsAndPushWithSubdirectory(t *testing.T) {
 	var pushed protocol.PushRequest
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer test-token" {
@@ -21,7 +21,7 @@ func TestFetchTargetsAndPush(t *testing.T) {
 			t.Errorf("unexpected user agent %q", request.Header.Get("User-Agent"))
 		}
 		switch request.URL.Path {
-		case "/api/v1/targets":
+		case "/netprobe/api/v1/targets":
 			response.Header().Set("Content-Type", "application/json")
 			_, _ = response.Write([]byte(`{
 				"version":1,
@@ -34,7 +34,7 @@ func TestFetchTargetsAndPush(t *testing.T) {
 				},
 				"targets":[{"target_id":"aliyun_dns","address":"223.5.5.5","probe_types":["icmp"]}]
 			}`))
-		case "/api/v1/push":
+		case "/netprobe/api/v1/push":
 			if request.Header.Get("Content-Type") != "application/json" {
 				t.Errorf("unexpected content type %q", request.Header.Get("Content-Type"))
 			}
@@ -48,7 +48,7 @@ func TestFetchTargetsAndPush(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewClient(server.URL, "test-token", "0.1.0")
+	client, err := NewClient(server.URL+"/netprobe/", "test-token", "0.1.0")
 	if err != nil {
 		t.Fatal(err)
 	}
