@@ -32,7 +32,7 @@ docker run -d \
   -e CQU_NETPROBE_TOKEN=YOUR_GATEWAY_TOKEN \
   -e CQU_NETPROBE_LOG_LEVEL=info \
   --restart unless-stopped \
-  tano26/cqu-netprobe:0
+  tano26/cqu-netprobe:1
 ```
 
 Linux 优先使用非特权 ping socket，不可用时回退到 raw socket，因此容器需要 `NET_RAW` capability。Windows 使用系统 IP Helper ICMP API，不启动外部 `ping`。
@@ -78,12 +78,6 @@ go run ./cmd/cqu-netprobe
 
 ```bash
 go build -trimpath -o cqu-netprobe ./cmd/cqu-netprobe
-```
-
-发布构建应注入版本号：
-
-```bash
-go build -trimpath -ldflags="-s -w -X main.version=0.1.0" -o cqu-netprobe ./cmd/cqu-netprobe
 ```
 
 测试：
