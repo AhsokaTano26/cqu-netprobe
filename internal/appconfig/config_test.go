@@ -6,30 +6,61 @@ import (
 	"testing"
 )
 
-func TestLoadConfigAndRelativeTokenFile(t *testing.T) {
-	t.Setenv("CQU_NETPROBE_GATEWAY_URL", "")
-	t.Setenv("CQU_NETPROBE_TOKEN", "")
-	t.Setenv("CQU_NETPROBE_TOKEN_FILE", "")
-	t.Setenv("CQU_NETPROBE_LOG_LEVEL", "")
-	directory := t.TempDir()
-	if err := os.WriteFile(filepath.Join(directory, "probe.token"), []byte("secret-token\n"), 0o600); err != nil {
-		t.Fatal(err)
+func TestLoadAndPrecedence(t *testing.T) {
+	for _, key := range []string{"CQU_NETPROBE_GATEWAY_URL", "CQU_NETPROBE_TOKEN", "CQU_NETPROBE_LOG_LEVEL"} {
+		t.Setenv(key, "")
+		os.Unsetenv(key)
 	}
+	directory := t.TempDir()
+	t.Chdir(directory)
 	configPath := filepath.Join(directory, "config.json")
-	data := []byte(`{"gateway_url":"https://gateway.example","token_file":"probe.token","log_level":"debug"}`)
+	data := []byte(`{"gateway_url":"https://gateway.example","token":"file-token","log_level":"debug"}`)
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	config, err := Load(configPath, Overrides{})
+	config, err := Load("", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Token != "secret-token" {
-		t.Fatalf("unexpected token %q", config.Token)
+	if config.Token != "file-token" || config.GatewayURL != "https://gateway.example" {
+		t.Fatal("default file not loaded")
 	}
 	if config.LogLevel != "debug" {
 		t.Fatalf("unexpected log level %q", config.LogLevel)
+	}
+	t.Setenv("CQU_NETPROBE_GATEWAY_URL", "https://env.example")
+	t.Setenv("CQU_NETPROBE_TOKEN", "env-token")
+	t.Setenv("CQU_NETPROBE_LOG_LEVEL", "warn")
+	config, err = Load("", Overrides{})
+	if err != nil || config.Token != "env-token" || config.GatewayURL != "https://env.example" || config.LogLevel != "warn" {
+		t.Fatalf("environment precedence failed: %v", err)
+	}
+	url, token, level := "https://cli.example", "cli-token", "off"
+	config, err = Load("", Overrides{GatewayURL: &url, Token: &token, LogLevel: &level})
+	if err != nil || config.Token != token || config.GatewayURL != url || config.LogLevel != level {
+		t.Fatalf("CLI precedence failed: %v", err)
+	}
+	token = ""
+	if _, err := Load("", Overrides{Token: &token}); err == nil {
+		t.Fatal("explicit empty CLI token must override lower-priority values")
+	}
+	t.Setenv("CQU_NETPROBE_TOKEN", "")
+	if _, err := Load("", Overrides{}); err == nil {
+		t.Fatal("explicit empty environment token must override file")
+	}
+}
+
+func TestMissingConfig(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("CQU_NETPROBE_GATEWAY_URL", "https://env.example")
+	t.Setenv("CQU_NETPROBE_TOKEN", "env-token")
+	t.Setenv("CQU_NETPROBE_LOG_LEVEL", "info")
+	if _, err := Load("", Overrides{}); err != nil {
+		t.Fatalf("environment-only startup failed: %v", err)
+	}
+	if _, err := Load("missing.json", Overrides{}); err == nil {
+		t.Fatal("explicit missing file must fail")
 	}
 }
 

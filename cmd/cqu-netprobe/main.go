@@ -28,10 +28,10 @@ func main() {
 }
 
 func run() error {
-	configFile := flag.String("config.file", "", "path to a JSON configuration file")
-	gatewayURL := flag.String("gateway.url", "", "Gateway base URL (overrides configuration and environment)")
-	tokenFile := flag.String("gateway.token-file", "", "path to the Gateway token (overrides configuration and environment)")
-	logLevel := flag.String("log.level", "", "debug, info, warn, or error")
+	configFile := flag.String("config-file", "", "JSON configuration file (default: ./config.json; env: CQU_NETPROBE_CONFIG_FILE)")
+	gatewayURL := flag.String("gateway-url", "", "Gateway base URL (overrides environment and config)")
+	token := flag.String("token", "", "Gateway token (overrides environment and config)")
+	logLevel := flag.String("log-level", "", "debug, info, warn, error, or off (overrides environment and config)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -42,11 +42,21 @@ func run() error {
 		return errors.New("build version must contain 1 to 32 bytes")
 	}
 
-	config, err := appconfig.Load(*configFile, appconfig.Overrides{
-		GatewayURL: *gatewayURL,
-		TokenFile:  *tokenFile,
-		LogLevel:   *logLevel,
+	overrides := appconfig.Overrides{}
+	path := os.Getenv("CQU_NETPROBE_CONFIG_FILE")
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "config-file":
+			path = *configFile
+		case "gateway-url":
+			overrides.GatewayURL = gatewayURL
+		case "token":
+			overrides.Token = token
+		case "log-level":
+			overrides.LogLevel = logLevel
+		}
 	})
+	config, err := appconfig.Load(path, overrides)
 	if err != nil {
 		return err
 	}

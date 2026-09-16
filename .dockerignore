@@ -1,5 +1,4 @@
 .git
 *.md
 openapi.json
-cqu-netprobe.example.json
-
+config.example.json

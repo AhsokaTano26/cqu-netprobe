@@ -3,4 +3,6 @@
 /.gocache/
 *.log
 *.token
-
+/config
+/config.json
+/cqu-netprobe.json

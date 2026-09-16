@@ -8,64 +8,56 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 type Config struct {
 	GatewayURL string `json:"gateway_url"`
 	Token      string `json:"token,omitempty"`
-	TokenFile  string `json:"token_file,omitempty"`
 	LogLevel   string `json:"log_level,omitempty"`
 }
 
 type Overrides struct {
-	GatewayURL string
-	TokenFile  string
-	LogLevel   string
+	GatewayURL *string
+	Token      *string
+	LogLevel   *string
 }
 
 func Load(path string, overrides Overrides) (Config, error) {
 	config := Config{LogLevel: "info"}
-	if path != "" {
+	defaultPath := path == ""
+	if defaultPath {
+		path = "config.json"
+	}
+	{
 		data, err := os.ReadFile(path)
-		if err != nil {
+		if err != nil && !(defaultPath && errors.Is(err, os.ErrNotExist)) {
 			return Config{}, fmt.Errorf("read config file: %w", err)
 		}
-		decoder := json.NewDecoder(strings.NewReader(string(data)))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&config); err != nil {
-			return Config{}, fmt.Errorf("decode config file: %w", err)
-		}
-		var extra any
-		if err := decoder.Decode(&extra); err == nil {
-			return Config{}, errors.New("decode config file: trailing JSON data")
-		} else if !errors.Is(err, io.EOF) {
-			return Config{}, fmt.Errorf("decode config file: %w", err)
-		}
-		if config.TokenFile != "" && !filepath.IsAbs(config.TokenFile) {
-			config.TokenFile = filepath.Join(filepath.Dir(path), config.TokenFile)
+		if err == nil {
+			decoder := json.NewDecoder(strings.NewReader(string(data)))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&config); err != nil {
+				return Config{}, fmt.Errorf("decode config file: %w", err)
+			}
+			var extra any
+			if err := decoder.Decode(&extra); err == nil {
+				return Config{}, errors.New("decode config file: trailing JSON data")
+			} else if !errors.Is(err, io.EOF) {
+				return Config{}, fmt.Errorf("decode config file: %w", err)
+			}
 		}
 	}
 
 	applyEnvironment(&config)
-	if overrides.GatewayURL != "" {
-		config.GatewayURL = overrides.GatewayURL
+	if overrides.GatewayURL != nil {
+		config.GatewayURL = *overrides.GatewayURL
 	}
-	if overrides.TokenFile != "" {
-		config.TokenFile = overrides.TokenFile
-		config.Token = ""
+	if overrides.Token != nil {
+		config.Token = *overrides.Token
 	}
-	if overrides.LogLevel != "" {
-		config.LogLevel = overrides.LogLevel
-	}
-
-	if config.TokenFile != "" {
-		data, err := os.ReadFile(config.TokenFile)
-		if err != nil {
-			return Config{}, fmt.Errorf("read token file: %w", err)
-		}
-		config.Token = strings.TrimSpace(string(data))
+	if overrides.LogLevel != nil {
+		config.LogLevel = *overrides.LogLevel
 	}
 	config.GatewayURL = strings.TrimRight(strings.TrimSpace(config.GatewayURL), "/")
 	config.Token = strings.TrimSpace(config.Token)
@@ -77,18 +69,13 @@ func Load(path string, overrides Overrides) (Config, error) {
 }
 
 func applyEnvironment(config *Config) {
-	if value := os.Getenv("CQU_NETPROBE_GATEWAY_URL"); value != "" {
+	if value, ok := os.LookupEnv("CQU_NETPROBE_GATEWAY_URL"); ok {
 		config.GatewayURL = value
 	}
-	if value := os.Getenv("CQU_NETPROBE_TOKEN"); value != "" {
+	if value, ok := os.LookupEnv("CQU_NETPROBE_TOKEN"); ok {
 		config.Token = value
-		config.TokenFile = ""
 	}
-	if value := os.Getenv("CQU_NETPROBE_TOKEN_FILE"); value != "" {
-		config.TokenFile = value
-		config.Token = ""
-	}
-	if value := os.Getenv("CQU_NETPROBE_LOG_LEVEL"); value != "" {
+	if value, ok := os.LookupEnv("CQU_NETPROBE_LOG_LEVEL"); ok {
 		config.LogLevel = value
 	}
 }
